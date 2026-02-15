@@ -1,0 +1,118 @@
+---
+name: baiduavatar-integration
+description: 百度曦灵实时互动数字人接入技能。用于实现 token 鉴权初始化、文本播报、流式播报、事件回调处理，以及移动端自动播放限制兼容。
+---
+
+# 百度数字人接入技能
+
+## 目标
+在会议总结播报页面中，以生产可用方式接入百度曦灵实时数字人。
+
+## 必要输入
+- `token`（后端签发的 Authorization）
+- `figureId`
+- `initMode`（推荐 `noAudio`）
+- `resolutionWidth` / `resolutionHeight`（偶数，建议不小于 400）
+- `cameraId`（可选）
+
+## 接入流程
+1. 拼装带参数的 iframe URL。
+2. 初始化 iframe 与 `@bddh/starling-dhiframe` 通信桥。
+3. 等待连接就绪，再开放播报按钮。
+4. 发送 `TEXT_RENDER`，正文使用审核后的 `script_final`。
+5. 监听并处理播报事件更新 UI。
+6. 在移动端通过用户交互触发解除静音。
+
+## 基于“云渲染demo (2)”的前端实现要点
+1. iframe 容器固定使用 `id="digital-human-iframe"`，用于 `new DHIframe('digital-human-iframe')` 绑定。
+2. 建议先判断两类就绪状态后再触发首句播报：
+- `rtcState.remoteVideoConnected`（远端视频流已连接）
+- `wsState.readyState === OPEN`（消息通道可用）
+3. 建议先做静音能力探测（demo 中使用 `checkPlayUnMute`），再决定是否先显示“解除静音”交互。
+4. 需要实现“重载数字人”和“卸载数字人”能力：
+- 重载：先卸载 iframe，再延时重新挂载
+- 卸载：隐藏或销毁 iframe 容器
+5. 播报前可先发送打断指令，避免上一轮残留：
+- `TEXT_RENDER` + `body: '<interrupt></interrupt>'`
+
+## iframe 初始化示例
+```html
+<iframe
+  id="digital-human-iframe"
+  src="https://open.xiling.baidu.com/cloud/realtime?token=<TOKEN>&figureId=<FIGURE_ID>&initMode=noAudio&resolutionWidth=1280&resolutionHeight=720"
+  frameBorder="0"
+  allow="microphone;camera;midi;encrypted-media;autoplay;"
+/>
+```
+
+## 消息发送
+
+### 1) 单次文本播报
+```ts
+dhIframe.sendMessage({
+  action: 'TEXT_RENDER',
+  body: scriptFinal,
+  requestId,
+});
+```
+
+### 2) 流式文本播报（可选）
+分片发送时保持同一 `requestId`，并标记首尾。
+
+```ts
+dhIframe.sendMessage({
+  action: 'TEXT_STREAM_RENDER',
+  body: JSON.stringify({ first: true, last: false, text: '第一段' }),
+  requestId,
+});
+```
+
+## 事件处理（必须实现）
+- `RENDER_START`：进入播报中状态
+- `FINISHED`：进入播报完成状态
+- `RENDER_ERROR`：提示失败并支持重试
+- `RENDER_INTERRUPTED`：标记被打断，可恢复
+- `DOWN_SUBTITLE`：更新字幕区域
+
+## demo 额外事件（建议支持）
+- `DISCONNECT_ALERT`：提示“长时间无交互，即将断开”
+- `TIMEOUT_EXIT`：触发数字人退出后，前端应支持一键重载
+- `rtcState.localVideoMuted`：同步本地“静音图标”状态
+- `wsState.CLOSING/CLOSED`：展示连接异常状态并给出重连入口
+
+## 移动端兼容
+浏览器可能阻止自动播放声音。用户点击后执行：
+
+```ts
+dhIframe.sendCommand({ subType: 'muteAudio', subContent: false });
+```
+
+建议：
+1. `sendCommand` 后延时 100-200ms 再更新本地静音状态，减少 UI 抖动。
+2. 在用户首次交互（点击播报/点击按钮）时执行解除静音逻辑，成功后再发送播报文本。
+
+## 安全规则
+- 前端不得签发或拼接百度密钥。
+- `appId/appKey` 仅存放在后端环境变量。
+- 前端只调用后端 token 接口（例如 `/api/avatar/token`）。
+
+## 项目映射（gmwAvatar）
+- 后端 `script_final` -> `TEXT_RENDER.body`
+- 后端 `highlights_final` -> 前端 Highlight 展示区域
+- 仅已发布会议内容允许触发数字人播报
+- 发布页建议保留以下前端控制能力：
+  - `开始播报`：发送 `TEXT_RENDER`
+  - `打断播报`：发送 `<interrupt></interrupt>`
+  - `静音/取消静音`：发送 `muteAudio`
+  - `重载数字人`：重建 iframe + 重新绑定事件
+
+## 验收清单
+- iframe 可用服务器签发 token 正常初始化。
+- `TEXT_RENDER` 可完成端到端播报。
+- `RENDER_START/FINISHED/RENDER_ERROR` 状态展示正确。
+- `DOWN_SUBTITLE` 可驱动字幕更新。
+- 移动端用户交互后可正常出声。
+
+## 参考
+- 百度曦灵 H5 文档：https://cloud.baidu.com/doc/AI_DH/s/ylywx77oh
+- 鉴权说明：https://cloud.baidu.com/doc/AI_DH/s/Ulywupd35

@@ -1,0 +1,23 @@
+{
+  "name": "realtime-digital-human-vue-demo",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc -b && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@bddh/starling-dhiframe": "^2.1.3",
+    "element-plus": "^2.9.7",
+    "uuid": "^10.0.0",
+    "vue": "^3.4.29"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.0.5",
+    "typescript": "^5.2.2",
+    "vite": "^4.5.9",
+    "vue-tsc": "^2.0.21"
+  }
+}

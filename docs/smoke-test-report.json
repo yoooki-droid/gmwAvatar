@@ -1,0 +1,184 @@
+{
+  "executedAt": "2026-02-15T06:17:32.433Z",
+  "frontendBase": "http://127.0.0.1:5174",
+  "backendBase": "http://127.0.0.1:8000",
+  "testTitle": "冒烟测试新闻-20260215-141725",
+  "hasFailure": false,
+  "rows": [
+    {
+      "name": "服务健康检查",
+      "status": "PASS",
+      "detail": "前后端可访问"
+    },
+    {
+      "name": "创建测试新闻",
+      "status": "PASS",
+      "detail": "report_id=28"
+    },
+    {
+      "name": "打开列表页",
+      "status": "PASS",
+      "detail": "/"
+    },
+    {
+      "name": "点击按钮：绑定飞书会议",
+      "status": "PASS",
+      "detail": "点击成功"
+    },
+    {
+      "name": "关闭飞书绑定弹层",
+      "status": "PASS",
+      "detail": "点击成功"
+    },
+    {
+      "name": "列表页播放入口",
+      "status": "PASS",
+      "detail": "点击成功"
+    },
+    {
+      "name": "列表页新建入口",
+      "status": "PASS",
+      "detail": "点击成功"
+    },
+    {
+      "name": "列表页编辑按钮",
+      "status": "PASS",
+      "detail": "可进入编辑页"
+    },
+    {
+      "name": "点击按钮：上一条",
+      "status": "SKIP",
+      "detail": "按钮不存在或处于禁用状态"
+    },
+    {
+      "name": "点击按钮：下一条",
+      "status": "PASS",
+      "detail": "点击成功"
+    },
+    {
+      "name": "点击按钮：AI 生成口播稿、亮点与金融反思",
+      "status": "PASS",
+      "detail": "点击成功"
+    },
+    {
+      "name": "点击按钮：保存",
+      "status": "PASS",
+      "detail": "点击成功"
+    },
+    {
+      "name": "点击按钮：保存并开启播报",
+      "status": "SKIP",
+      "detail": "按钮不存在或处于禁用状态"
+    },
+    {
+      "name": "打开播放调试页",
+      "status": "PASS",
+      "detail": "/playback"
+    },
+    {
+      "name": "点击按钮：读取会议实时总结",
+      "status": "PASS",
+      "detail": "点击成功"
+    },
+    {
+      "name": "调试页打开飞书弹层",
+      "status": "PASS",
+      "detail": "点击成功"
+    },
+    {
+      "name": "关闭调试页飞书弹层",
+      "status": "PASS",
+      "detail": "点击成功"
+    },
+    {
+      "name": "点击按钮：轮播会议总结",
+      "status": "PASS",
+      "detail": "点击成功"
+    },
+    {
+      "name": "点击按钮：会议反思",
+      "status": "PASS",
+      "detail": "点击成功"
+    },
+    {
+      "name": "点击按钮：轮播会议总结",
+      "status": "PASS",
+      "detail": "点击成功"
+    },
+    {
+      "name": "点击按钮：刷新队列",
+      "status": "PASS",
+      "detail": "点击成功"
+    },
+    {
+      "name": "点击按钮：保存配置",
+      "status": "PASS",
+      "detail": "点击成功"
+    },
+    {
+      "name": "点击按钮：保存并立即执行",
+      "status": "PASS",
+      "detail": "点击成功"
+    },
+    {
+      "name": "点击按钮：从后端读取数字人配置",
+      "status": "PASS",
+      "detail": "点击成功"
+    },
+    {
+      "name": "点击按钮：加载数字人",
+      "status": "PASS",
+      "detail": "点击成功"
+    },
+    {
+      "name": "点击按钮：不加载数字人",
+      "status": "PASS",
+      "detail": "点击成功"
+    },
+    {
+      "name": "点击按钮：显示固定参数区",
+      "status": "SKIP",
+      "detail": "按钮不存在或处于禁用状态"
+    },
+    {
+      "name": "点击按钮：隐藏固定参数区",
+      "status": "PASS",
+      "detail": "点击成功"
+    },
+    {
+      "name": "点击按钮：显示固定参数区",
+      "status": "PASS",
+      "detail": "点击成功"
+    },
+    {
+      "name": "点击按钮：仅保存数字人参数",
+      "status": "PASS",
+      "detail": "点击成功"
+    },
+    {
+      "name": "点击按钮：加载数字人（当前调试页）",
+      "status": "PASS",
+      "detail": "点击成功"
+    },
+    {
+      "name": "点击按钮：隐藏固定参数区",
+      "status": "PASS",
+      "detail": "点击成功"
+    },
+    {
+      "name": "点击按钮：清空手动配置",
+      "status": "PASS",
+      "detail": "点击成功"
+    },
+    {
+      "name": "打开沉浸式播报页",
+      "status": "SKIP",
+      "detail": "按钮禁用（通常是数字人参数未配置）"
+    },
+    {
+      "name": "控制台错误检查",
+      "status": "PASS",
+      "detail": "无 console.error / pageerror"
+    }
+  ]
+}

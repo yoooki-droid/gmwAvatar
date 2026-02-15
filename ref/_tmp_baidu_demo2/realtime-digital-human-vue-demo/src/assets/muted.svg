@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="16px" height="16px" viewBox="0 0 16 16" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <title>编组 24备份</title>
+    <g id="页面-1" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="编组-24备份">
+            <rect id="矩形" fill="#D8D8D8" opacity="0" x="0" y="0" width="16" height="16"></rect>
+            <path d="M2,6.02860607 C2,5.47632607 2.44772,5.02860607 3,5.02860607 L3.9713,5.02860607 C4.08249,5.02860607 4.19051,4.99154607 4.27827,4.92328607 L7.19303,2.65624607 C7.52146,2.40080607 8,2.63485607 8,3.05092607 L8,13.0063061 C8,13.4224061 7.52146,13.6564061 7.19303,13.4010061 L4.27827,11.1339061 C4.19051,11.0657061 4.08249,11.0286061 3.9713,11.0286061 L3,11.0286061 C2.44772,11.0286061 2,10.5809061 2,10.0286061 L2,6.02860607 Z" id="Rectangle-24" stroke="#5B647A" stroke-width="1.2"></path>
+            <line x1="9" y1="8.5" x2="16" y2="8.5" id="路径-10" stroke="#5B647A" stroke-width="1.2" stroke-linecap="round" transform="translate(12.5, 8.5) rotate(-225) translate(-12.5, -8.5)"></line>
+            <line x1="12.5" y1="5" x2="12.5" y2="12" id="路径-10" stroke="#5B647A" stroke-width="1.2" stroke-linecap="round" transform="translate(12.5, 8.5) rotate(-225) translate(-12.5, -8.5)"></line>
+        </g>
+    </g>
+</svg>
