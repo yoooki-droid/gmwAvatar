@@ -30,8 +30,15 @@
       <div class="page-actions">
         <button class="btn" :disabled="!prevId" @click="goPrev">上一条</button>
         <button class="btn" :disabled="!nextId" @click="goNext">下一条</button>
-        <button class="btn primary" :disabled="!canGenerate || isPreparingLanguages" @click="handleGenerate">
-          {{ isPreparingLanguages ? '多语言准备中...' : 'AI 生成口播稿、亮点与金融反思' }}
+        <button class="btn primary" :disabled="!canGenerate || isGenerating" @click="handleGenerate">
+          {{ isGenerating ? '生成中...' : 'AI 生成当前语言内容' }}
+        </button>
+        <button
+          class="btn"
+          :disabled="isPreparingLanguages || isGenerating || isSourceLanguage(currentEditLanguage)"
+          @click="handleTranslateCurrentLanguage"
+        >
+          {{ isPreparingLanguages ? '翻译中...' : 'AI 翻译当前语言' }}
         </button>
         <button class="btn dark" :disabled="!canSave" @click="handleSave">保存</button>
         <button class="btn dark" :disabled="!canSave" @click="handleSaveAndEnable">保存并播报</button>
@@ -151,7 +158,7 @@ import { useRoute, useRouter } from 'vue-router';
 
 import {
   createReport,
-  generateReportPack,
+  generateReport,
   getReport,
   getReportTranslations,
   listReports,
@@ -199,6 +206,7 @@ const reportIds = ref<number[]>([]);
 const info = ref('');
 
 const isPreparingLanguages = ref(false);
+const isGenerating = ref(false);
 const preparedLanguageKeys = ref<string[]>([]);
 const currentEditLanguage = ref<string>('zh');
 const sourceLanguageKey = ref<string>('zh');
@@ -557,21 +565,28 @@ const handleGenerate = async () => {
     info.value = '请先填写标题和内容';
     return;
   }
-  isPreparingLanguages.value = true;
+  isGenerating.value = true;
   try {
     const saved = await persistZhReport(undefined);
-    const generated = await generateReportPack(saved.id);
+    const generated = await generateReport(saved.id);
     form.script_final = generated.script_draft || '';
     form.highlights_final = ensurePairHighlights(generated.highlights_draft || []);
     form.reflections_final = ensureReflections(generated.reflections_draft || []);
-    await loadTranslations(saved.id);
     currentEditLanguage.value = sourceLanguageKey.value;
-    info.value = 'AI 生成完成，已同步准备多语言（含反思）';
+    info.value = 'AI 生成完成（仅主稿）。如需其他语种，请切换语言后点击“AI 翻译当前语言”。';
   } catch (e: any) {
     info.value = `AI 生成失败：${String(e.message || e)}`;
   } finally {
-    isPreparingLanguages.value = false;
+    isGenerating.value = false;
   }
+};
+
+const handleTranslateCurrentLanguage = async () => {
+  if (isSourceLanguage(currentEditLanguage.value)) {
+    info.value = '当前是主稿语种，请先切换到目标语言后再翻译';
+    return;
+  }
+  await prepareCurrentLanguage();
 };
 
 const saveCore = async (enableAutoPlay: boolean): Promise<number | null> => {
