@@ -20,6 +20,8 @@ export interface ReportDetail {
   highlights_draft: string[];
   highlights_final: string[];
   reflections_final: string[];
+  questions_final: string[];
+  question_persona: string;
   auto_play_enabled: boolean;
   status: string;
   published_at: string | null;
@@ -33,6 +35,8 @@ export interface PlaybackQueueItem {
   script_final: string;
   highlights_final: string[];
   reflections_final: string[];
+  questions_final: string[];
+  question_persona: string;
   localized?: Record<
     string,
     {
@@ -40,6 +44,8 @@ export interface PlaybackQueueItem {
       script_final: string;
       highlights_final: string[];
       reflections_final?: string[];
+      questions_final?: string[];
+      question_persona?: string;
       render_mode?: 'text' | 'audio';
       audio_ready?: boolean;
       audio_pcm_base64?: string;
@@ -49,19 +55,29 @@ export interface PlaybackQueueItem {
 
 export interface TranslationItem {
   language_key: string;
-  status: 'missing' | 'ready';
+  status: 'missing' | 'translating' | 'ready' | 'failed';
+  error: string;
   reviewed: boolean;
   reviewed_at: string | null;
   title: string;
   script_final: string;
   highlights_final: string[];
   reflections_final: string[];
+  questions_final: string[];
+  question_persona: string;
   render_mode: 'text' | 'audio';
   audio_ready: boolean;
 }
 
+export interface TranslationJobTriggerResponse {
+  task_id: string;
+  report_id: number;
+  languages: string[];
+  status: 'queued';
+}
+
 export interface PlaybackModeState {
-  mode: 'realtime_summary' | 'carousel_summary' | 'reflection_qa';
+  mode: 'realtime_summary' | 'carousel_summary' | 'reflection_qa' | 'meeting_live';
   carousel_scope: 'single' | 'loop';
   selected_report_id: number | null;
   updated_at: string;
@@ -74,6 +90,12 @@ export interface FeishuLiveRecordItem {
 }
 
 export interface ReflectionItem {
+  text: string;
+  /** 该语言的预合成音频，后端已合成时才有值 */
+  audio_pcm_base64?: string | null;
+}
+
+export interface QuestionItem {
   text: string;
 }
 
@@ -93,6 +115,15 @@ export interface FeishuMeetingDiagnoseStep {
   ok: boolean;
   detail: string;
   data: Record<string, any>;
+}
+
+export interface FeishuDocxImportResponse {
+  success: boolean;
+  report_id: number | null;
+  title: string;
+  content_length: number;
+  message: string;
+  error: string | null;
 }
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
@@ -141,6 +172,8 @@ export async function createReport(payload: {
   script_final: string;
   highlights_final: string[];
   reflections_final?: string[];
+  questions_final?: string[];
+  question_persona?: string;
   auto_play_enabled?: boolean;
 }) {
   return request<ReportDetail>('/api/reports', {
@@ -160,6 +193,8 @@ export async function updateReport(
     script_final: string;
     highlights_final: string[];
     reflections_final: string[];
+    questions_final: string[];
+    question_persona: string;
     auto_play_enabled: boolean;
   }>,
 ) {
@@ -176,7 +211,13 @@ export async function deleteReport(id: number) {
 }
 
 export async function generateReport(id: number) {
-  return request<{ report_id: number; script_draft: string; highlights_draft: string[]; reflections_draft: string[] }>(
+  return request<{
+    report_id: number;
+    script_draft: string;
+    highlights_draft: string[];
+    reflections_draft: string[];
+    questions_draft: string[];
+  }>(
     `/api/reports/${id}/generate`,
     {
       method: 'POST',
@@ -185,7 +226,13 @@ export async function generateReport(id: number) {
 }
 
 export async function generateReportPack(id: number) {
-  return request<{ report_id: number; script_draft: string; highlights_draft: string[]; reflections_draft: string[] }>(
+  return request<{
+    report_id: number;
+    script_draft: string;
+    highlights_draft: string[];
+    reflections_draft: string[];
+    questions_draft: string[];
+  }>(
     `/api/reports/${id}/generate-pack`,
     {
       method: 'POST',
@@ -193,8 +240,8 @@ export async function generateReportPack(id: number) {
   );
 }
 
-export async function generatePreview(payload: { title: string; speaker?: string; summary_raw: string }) {
-  return request<{ script_draft: string; highlights_draft: string[]; reflections_draft: string[] }>('/api/reports/generate-preview', {
+export async function generatePreview(payload: { title: string; speaker?: string; summary_raw: string; question_persona?: string }) {
+  return request<{ script_draft: string; highlights_draft: string[]; reflections_draft: string[]; questions_draft: string[] }>('/api/reports/generate-preview', {
     method: 'POST',
     body: JSON.stringify(payload),
   });
@@ -239,11 +286,32 @@ export async function prepareReportTranslation(id: number, languageKey: string) 
     script_final: string;
     highlights_final: string[];
     reflections_final: string[];
+    questions_final: string[];
+    question_persona: string;
     render_mode: 'text' | 'audio';
     audio_ready: boolean;
   }>(`/api/reports/${id}/translations/${languageKey}/prepare`, {
     method: 'POST',
   });
+}
+
+export async function retranslateAllLanguages(id: number) {
+  return request<TranslationJobTriggerResponse>(`/api/reports/${id}/translations/retranslate-all`, {
+    method: 'POST',
+  });
+}
+
+export async function retranslateSingleLanguage(id: number, languageKey: string) {
+  return request<TranslationJobTriggerResponse>(`/api/reports/${id}/translations/${languageKey}/retranslate`, {
+    method: 'POST',
+  });
+}
+
+export async function getReportTranslationJobs(id: number) {
+  return request<{
+    report_id: number;
+    items: Array<{ language_key: string; status: 'missing' | 'translating' | 'ready' | 'failed'; error: string; updated_at: string | null }>;
+  }>(`/api/reports/${id}/translation-jobs`);
 }
 
 export async function updateReportTranslation(
@@ -254,6 +322,8 @@ export async function updateReportTranslation(
     script_final: string;
     highlights_final: string[];
     reflections_final: string[];
+    questions_final: string[];
+    question_persona: string;
     reviewed: boolean;
   }>,
 ) {
@@ -267,6 +337,8 @@ export async function updateReportTranslation(
     script_final: string;
     highlights_final: string[];
     reflections_final: string[];
+    questions_final: string[];
+    question_persona: string;
     render_mode: 'text' | 'audio';
     audio_ready: boolean;
   }>(`/api/reports/${id}/translations/${languageKey}`, {
@@ -275,8 +347,18 @@ export async function updateReportTranslation(
   });
 }
 
-export async function getReportReflection(id: number) {
-  return request<{ report_id: number; reflections: ReflectionItem[] }>(`/api/reports/${id}/reflection`);
+export async function getReportReflection(id: number, lang?: string) {
+  const params = lang ? `?lang=${encodeURIComponent(lang)}` : '';
+  return request<{ report_id: number; reflections: ReflectionItem[] }>(`/api/reports/${id}/reflection${params}`);
+}
+
+export async function getReportQuestions(id: number, options?: { lang?: string; persona?: string }) {
+  const params = new URLSearchParams();
+  if (options?.lang) params.set('lang', options.lang);
+  if (options?.persona) params.set('persona', options.persona);
+  const query = params.toString();
+  const path = query ? `/api/reports/${id}/questions?${query}` : `/api/reports/${id}/questions`;
+  return request<{ report_id: number; persona: string; questions: QuestionItem[] }>(path);
 }
 
 export async function getPlaybackQueue(options?: { includeAudio?: boolean; langs?: string[]; reportId?: number }) {
@@ -294,7 +376,7 @@ export async function getPlaybackMode() {
 }
 
 export async function updatePlaybackMode(payload: {
-  mode: 'realtime_summary' | 'carousel_summary' | 'reflection_qa';
+  mode: 'realtime_summary' | 'carousel_summary' | 'reflection_qa' | 'meeting_live';
   carousel_scope?: 'single' | 'loop';
   selected_report_id?: number | null;
 }) {
@@ -344,6 +426,17 @@ export async function importFeishuMeeting(payload: {
   });
 }
 
+export async function importFeishuDocx(payload: {
+  docx_url: string;
+  auto_generate?: boolean;
+  auto_enable_playback?: boolean;
+}) {
+  return request<FeishuDocxImportResponse>('/api/reports/import/feishu-docx', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function inspectFeishuMeeting(payload: { meeting_url: string; lookback_days?: number }) {
   return request<{
     total: number;
@@ -375,6 +468,32 @@ export async function diagnoseFeishuMeeting(payload: { meeting_url: string; look
     steps: FeishuMeetingDiagnoseStep[];
     suggestion: string;
   }>('/api/reports/import/feishu-meeting/diagnose', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function inspectFeishuDocx(payload: { docx_url: string }) {
+  return request<{
+    ok: boolean;
+    document_id: string;
+    title: string;
+    content_length: number;
+    message: string;
+    error: string | null;
+  }>('/api/reports/import/feishu-docx/inspect', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function diagnoseFeishuDocx(payload: { docx_url: string }) {
+  return request<{
+    ok: boolean;
+    document_id: string;
+    steps: FeishuMeetingDiagnoseStep[];
+    suggestion: string;
+  }>('/api/reports/import/feishu-docx/diagnose', {
     method: 'POST',
     body: JSON.stringify(payload),
   });

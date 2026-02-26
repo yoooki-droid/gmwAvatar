@@ -29,6 +29,9 @@
         <p class="meta" v-else-if="playbackMode === 'reflection_qa'">
           反思建议：{{ reflectionItems.length }} 条 ｜ 新闻ID：{{ selectedReflectionReportId || '-' }}
         </p>
+        <p class="meta" v-else-if="playbackMode === 'meeting_live'">
+          会议模式：提问 {{ meetingQuestions.length }} 条 ｜ 反思 {{ meetingReflectionItems.length }} 条 ｜ 新闻ID：{{ selectedMeetingReportId || '-' }}
+        </p>
         <p class="meta" v-else>
           实时总结记录：{{ liveRecords.length }} 条
         </p>
@@ -68,6 +71,9 @@
             </button>
             <button class="btn" :class="{ primary: playbackMode === 'reflection_qa' }" @click="switchMode('reflection_qa')">
               会议反思
+            </button>
+            <button class="btn" :class="{ primary: playbackMode === 'meeting_live' }" @click="switchMode('meeting_live')">
+              会议中模式
             </button>
           </div>
           <div class="script-box" v-if="playbackMode === 'carousel_summary'">
@@ -118,6 +124,38 @@
                 {{ isLoadingReflection ? '调取中...' : '调取反思内容' }}
               </button>
               <span class="status-text">反思内容在新闻编辑页查看与维护</span>
+            </div>
+          </div>
+
+          <div class="script-box" v-if="playbackMode === 'meeting_live'">
+            <div class="page-actions">
+              <label style="flex: 1">
+                <span>选择新闻</span>
+                <select class="field" :value="String(selectedMeetingReportId || '')" @change="onMeetingReportChanged">
+                  <option value="" disabled>请选择新闻</option>
+                  <option v-for="item in reflectionReportOptions" :key="item.id" :value="String(item.id)">
+                    {{ item.id }} - {{ item.title }}
+                  </option>
+                </select>
+              </label>
+              <label style="flex: 1">
+                <span>提问人设</span>
+                <select class="field" v-model="meetingPersona">
+                  <option v-for="persona in meetingPersonaOptions" :key="persona.key" :value="persona.key">{{ persona.label }}</option>
+                </select>
+              </label>
+            </div>
+            <div class="actions">
+              <button class="btn" :disabled="!selectedMeetingReportId || isLoadingMeetingMode" @click="loadMeetingSummary">
+                读取会议总结
+              </button>
+              <button class="btn primary" :disabled="!selectedMeetingReportId || isLoadingMeetingMode" @click="loadMeetingQuestions">
+                读取会议提问
+              </button>
+              <button class="btn" :disabled="!selectedMeetingReportId || isLoadingMeetingMode" @click="loadMeetingReflections">
+                读取会议反思
+              </button>
+              <span class="status-text">{{ isLoadingMeetingMode ? '读取中...' : '可切换总结/提问/反思进行调试' }}</span>
             </div>
           </div>
         </div>
@@ -192,14 +230,14 @@
 
     <div class="panel-mask" v-if="showFeishuPanel" @click.self="closeFeishuPanel">
       <section class="panel-card">
-        <h3>绑定飞书会议（实时总结）</h3>
-        <p class="panel-desc">输入会议链接后，可先诊断权限，再导入会议内容。</p>
+        <h3>绑定飞书链接（实时总结）</h3>
+        <p class="panel-desc">支持会议、妙记、文档链接；可先诊断权限，再导入内容。</p>
         <label>
-          <span>飞书会议链接</span>
+          <span>飞书链接</span>
           <input
             v-model.trim="feishuLinkInput"
             class="field"
-            placeholder="https://vc.feishu.cn/j/151322082 或 https://tpc.feishu.cn/minutes/xxxx"
+            placeholder="https://vc.feishu.cn/j/xxxx 或 https://tpc.feishu.cn/minutes/xxxx 或 https://tpc.feishu.cn/docx/xxxx"
           />
         </label>
         <label>
@@ -227,13 +265,18 @@ import { useRoute } from 'vue-router';
 
 import BaiduAvatarPlayer from '../components/BaiduAvatarPlayer.vue';
 import {
+  diagnoseFeishuDocx,
   diagnoseFeishuMeeting,
   getAvatarToken,
   getFeishuLiveRecords,
   getPlaybackMode,
   getPlaybackQueue,
+  getReport,
+  getReportQuestions,
   getReportReflection,
+  importFeishuDocx,
   importFeishuMeeting,
+  inspectFeishuDocx,
   inspectFeishuMeeting,
   listReports,
   prepareReportTranslation,
@@ -242,6 +285,7 @@ import {
   type ReportListItem,
   type FeishuLiveRecordItem,
   type PlaybackQueueItem,
+  type QuestionItem,
   type ReflectionItem,
   updatePlaybackMode,
 } from '../services/api';
@@ -276,7 +320,7 @@ interface LanguageOption {
   ttsLan: string;
 }
 
-type PlaybackMode = 'realtime_summary' | 'carousel_summary' | 'reflection_qa';
+type PlaybackMode = 'realtime_summary' | 'carousel_summary' | 'reflection_qa' | 'meeting_live';
 type CarouselScope = 'single' | 'loop';
 
 const AVATAR_POSITION_V2 = '{"location":{"top":36,"left":710,"width":608,"height":1080}}';
@@ -298,6 +342,7 @@ const languageOptions: LanguageOption[] = [
   { key: 'id', label: '印度尼西亚语', ttsLan: 'Indonesian' },
   { key: 'ms', label: '马来西亚语', ttsLan: 'auto' },
   { key: 'hi', label: '印度语', ttsLan: 'Hindi' },
+  { key: 'th', label: '泰语', ttsLan: 'Thai' },
 ];
 const languageTargetMap: Record<string, string> = {
   zh: 'Chinese',
@@ -307,8 +352,16 @@ const languageTargetMap: Record<string, string> = {
   id: 'Indonesian',
   ms: 'Malay (Malaysia)',
   hi: 'Hindi',
+  th: 'Thai',
 };
 const TEXT_RENDER_LANGUAGE_KEYS = new Set(['zh', 'en']);
+const meetingPersonaOptions = [
+  { key: 'board_director', label: '独立董事（问责）' },
+  { key: 'cro', label: '首席风险官（风险）' },
+  { key: 'coo', label: '首席运营官（执行）' },
+  { key: 'cfo', label: '首席财务官（财务）' },
+  { key: 'strategy', label: '战略顾问（取舍）' },
+];
 
 const route = useRoute();
 const playerRef = ref<InstanceType<typeof BaiduAvatarPlayer> | null>(null);
@@ -322,6 +375,7 @@ const showFixedConfigSection = ref(true);
 const playbackMode = ref<PlaybackMode>('carousel_summary');
 const carouselScope = ref<CarouselScope>('loop');
 const selectedReflectionReportId = ref<number | null>(null);
+const selectedMeetingReportId = ref<number | null>(null);
 const selectedRealtimeReportId = ref<number | null>(null);
 
 const queueItems = ref<PlaybackQueueItem[]>([]);
@@ -344,6 +398,12 @@ const reflectionItems = ref<ReflectionItem[]>([]);
 const reflectionLoadedReportId = ref<number | null>(null);
 const reflectionReportOptions = ref<ReportListItem[]>([]);
 const isLoadingReflection = ref(false);
+const meetingQuestions = ref<QuestionItem[]>([]);
+const meetingReflectionItems = ref<ReflectionItem[]>([]);
+const isLoadingMeetingMode = ref(false);
+const meetingPersona = ref('board_director');
+
+const isDocxLink = (link: string) => /\/docx\//i.test(link);
 
 const baseAvatarConfig = ref<AvatarConfig | null>(null);
 const avatarForm = reactive({
@@ -376,6 +436,7 @@ const carouselScopeLabel = computed(() => (carouselScope.value === 'single' ? '�
 const currentModeLabel = computed(() => {
   if (playbackMode.value === 'realtime_summary') return '读取会议实时总结';
   if (playbackMode.value === 'reflection_qa') return '会议反思';
+  if (playbackMode.value === 'meeting_live') return '会议中模式';
   return '轮播会议总结';
 });
 
@@ -623,7 +684,7 @@ const applyRealtimeSummary = async (): Promise<boolean> => {
 
     report.id = 'realtime';
     report.title = '会议实时总结';
-    report.speaker = liveRecords.value[0]?.speaker || '会议记录';
+    report.speaker = (Array.isArray(liveRecords.value) && liveRecords.value[0]) ? (liveRecords.value[0].speaker || '会议记录') : '会议记录';
     report.scriptFinal = lines.join('。') + '。';
     report.renderMode = 'text';
     report.audioPcmBase64 = '';
@@ -694,12 +755,111 @@ const applyReflectionSummary = async (): Promise<boolean> => {
   }
 };
 
+const applyMeetingSummary = async (): Promise<boolean> => {
+  try {
+    if (!selectedMeetingReportId.value) {
+      report.id = '';
+      report.title = '会议中模式（未就绪）';
+      report.speaker = '';
+      report.scriptFinal = '请先选择新闻并读取会议总结。';
+      report.renderMode = 'text';
+      report.audioPcmBase64 = '';
+      return false;
+    }
+    const detail = await getReport(selectedMeetingReportId.value);
+    const baseScript = String(detail.script_final || detail.script_draft || '').trim();
+    const payload = await translateNonCarouselPayload(`meeting-summary:${detail.id}:${baseScript}`, {
+      title: `${detail.title || '会议内容'}｜会议总结`,
+      script: baseScript,
+      highlights: detail.highlights_final || [],
+    });
+    const audioPayload = await resolveNonCarouselAudio(`meeting-summary:${detail.id}:${payload.script}`, payload.script);
+
+    report.id = String(detail.id);
+    report.title = payload.title;
+    report.speaker = detail.speaker || '会议主持人';
+    report.scriptFinal = payload.script;
+    report.renderMode = audioPayload.renderMode;
+    report.audioPcmBase64 = audioPayload.audioPcmBase64;
+    return true;
+  } catch (e: any) {
+    configInfo.value = `会议总结准备失败：${String(e.message || e)}`;
+    return false;
+  }
+};
+
+const applyMeetingQuestions = async (): Promise<boolean> => {
+  try {
+    if (!selectedMeetingReportId.value) {
+      return false;
+    }
+    const data = await getReportQuestions(selectedMeetingReportId.value, {
+      lang: currentLanguage.value.key,
+      persona: meetingPersona.value,
+    });
+    meetingQuestions.value = data.questions || [];
+    const questionLines = meetingQuestions.value.map((x, idx) => `问题${idx + 1}：${x.text}`).filter(Boolean);
+    if (!questionLines.length) {
+      configInfo.value = '当前会议暂无提问内容';
+      return false;
+    }
+
+    const target = reflectionReportOptions.value.find((x) => x.id === selectedMeetingReportId.value);
+    const script = questionLines.join('。') + '。';
+    const audioPayload = await resolveNonCarouselAudio(
+      `meeting-questions:${selectedMeetingReportId.value}:${meetingPersona.value}:${script}`,
+      script,
+    );
+    report.id = String(selectedMeetingReportId.value);
+    report.title = `${target?.title || '会议内容'}｜会议提问`;
+    report.speaker = target?.speaker || '会议观察员';
+    report.scriptFinal = script;
+    report.renderMode = audioPayload.renderMode;
+    report.audioPcmBase64 = audioPayload.audioPcmBase64;
+    return true;
+  } catch (e: any) {
+    configInfo.value = `会议提问加载失败：${String(e.message || e)}`;
+    return false;
+  }
+};
+
+const applyMeetingReflections = async (): Promise<boolean> => {
+  try {
+    if (!selectedMeetingReportId.value) {
+      return false;
+    }
+    const data = await getReportReflection(selectedMeetingReportId.value, currentLanguage.value.key);
+    meetingReflectionItems.value = data.reflections || [];
+    const reflectionTexts = meetingReflectionItems.value.map((x) => x.text).filter(Boolean);
+    if (!reflectionTexts.length) {
+      configInfo.value = '当前会议暂无反思内容';
+      return false;
+    }
+    const target = reflectionReportOptions.value.find((x) => x.id === selectedMeetingReportId.value);
+    const script = reflectionTexts.map((x, idx) => `反思${idx + 1}：${x}`).join('。') + '。';
+    const audioPayload = await resolveNonCarouselAudio(`meeting-reflections:${selectedMeetingReportId.value}:${script}`, script);
+    report.id = String(selectedMeetingReportId.value);
+    report.title = `${target?.title || '会议内容'}｜会议反思`;
+    report.speaker = target?.speaker || '复盘教练';
+    report.scriptFinal = script;
+    report.renderMode = audioPayload.renderMode;
+    report.audioPcmBase64 = audioPayload.audioPcmBase64;
+    return true;
+  } catch (e: any) {
+    configInfo.value = `会议反思加载失败：${String(e.message || e)}`;
+    return false;
+  }
+};
+
 const applyCurrentModeReport = async (force = false): Promise<boolean> => {
   if (playbackMode.value === 'realtime_summary') {
     return applyRealtimeSummary();
   }
   if (playbackMode.value === 'reflection_qa') {
     return applyReflectionSummary();
+  }
+  if (playbackMode.value === 'meeting_live') {
+    return applyMeetingSummary();
   }
   return applyCarouselReport(force);
 };
@@ -782,16 +942,17 @@ const closeFeishuPanel = () => {
 const runFeishuDiagnose = async () => {
   const meetingUrl = feishuLinkInput.value.trim();
   if (!meetingUrl) {
-    feishuBindResult.value = '请先输入飞书会议链接';
+    feishuBindResult.value = '请先输入飞书链接';
     return;
   }
   feishuWorking.value = true;
   try {
-    const lookbackDays = Math.max(1, Math.min(180, Number(feishuLookbackDays.value) || 30));
-    const diagnose = await diagnoseFeishuMeeting({
-      meeting_url: meetingUrl,
-      lookback_days: lookbackDays,
-    });
+    const diagnose = isDocxLink(meetingUrl)
+      ? await diagnoseFeishuDocx({ docx_url: meetingUrl })
+      : await diagnoseFeishuMeeting({
+          meeting_url: meetingUrl,
+          lookback_days: Math.max(1, Math.min(180, Number(feishuLookbackDays.value) || 30)),
+        });
     const passed = diagnose.steps.filter((x) => x.ok).length;
     feishuBindResult.value = diagnose.ok
       ? `诊断通过（${passed}/${diagnose.steps.length}），可导入。`
@@ -807,35 +968,60 @@ const runFeishuDiagnose = async () => {
 const bindAndImportFeishu = async () => {
   const meetingUrl = feishuLinkInput.value.trim();
   if (!meetingUrl) {
-    feishuBindResult.value = '请先输入飞书会议链接';
+    feishuBindResult.value = '请先输入飞书链接';
     return;
   }
   feishuWorking.value = true;
   try {
-    const lookbackDays = Math.max(1, Math.min(180, Number(feishuLookbackDays.value) || 30));
-    const inspect = await inspectFeishuMeeting({
-      meeting_url: meetingUrl,
-      lookback_days: lookbackDays,
-    });
-    if (!inspect.total) {
-      feishuBindResult.value = '未查询到会议记录，请检查链接或回溯天数。';
-      return;
+    let importedReportId = 0;
+    let resultMessage = '';
+    if (isDocxLink(meetingUrl)) {
+      const inspect = await inspectFeishuDocx({ docx_url: meetingUrl });
+      if (!inspect.ok) {
+        feishuBindResult.value = `文档检查失败：${inspect.error || inspect.message}`;
+        return;
+      }
+      const imported = await importFeishuDocx({
+        docx_url: meetingUrl,
+        auto_generate: true,
+        auto_enable_playback: false,
+      });
+      if (!imported.success) {
+        feishuBindResult.value = `导入失败：${imported.error || imported.message}`;
+        return;
+      }
+      importedReportId = Number(imported.report_id || 0);
+      resultMessage = imported.message;
+    } else {
+      const lookbackDays = Math.max(1, Math.min(180, Number(feishuLookbackDays.value) || 30));
+      const inspect = await inspectFeishuMeeting({
+        meeting_url: meetingUrl,
+        lookback_days: lookbackDays,
+      });
+      if (!inspect.total) {
+        feishuBindResult.value = '未查询到会议记录，请检查链接或回溯天数。';
+        return;
+      }
+      const imported = await importFeishuMeeting({
+        meeting_url: meetingUrl,
+        lookback_days: lookbackDays,
+        auto_generate: true,
+        auto_enable_playback: false,
+      });
+      importedReportId = Number(imported.items?.find((x) => (x.report_id || 0) > 0)?.report_id || 0);
+      resultMessage = imported.message;
     }
-    const imported = await importFeishuMeeting({
-      meeting_url: meetingUrl,
-      lookback_days: lookbackDays,
-      auto_generate: true,
-      auto_enable_playback: false,
-    });
-    const importedReportId = Number(imported.items?.find((x) => (x.report_id || 0) > 0)?.report_id || 0);
+
     if (importedReportId > 0) {
       selectedRealtimeReportId.value = importedReportId;
     }
-    feishuBindResult.value = imported.message;
+    feishuBindResult.value = resultMessage;
     window.localStorage.setItem(FEISHU_MEETING_LINK_KEY, meetingUrl);
-    await loadRealtimeSummary();
+    if (!isDocxLink(meetingUrl)) {
+      await loadRealtimeSummary();
+    }
     await refreshQueue();
-    configInfo.value = `飞书会议已绑定并导入：${imported.message}`;
+    configInfo.value = `飞书链接已导入：${resultMessage}`;
   } catch (e: any) {
     feishuBindResult.value = `导入失败：${String(e.message || e)}`;
   } finally {
@@ -882,6 +1068,56 @@ const loadReflection = async () => {
   }
 };
 
+const loadMeetingSummary = async () => {
+  if (!selectedMeetingReportId.value) {
+    configInfo.value = '请先选择一条新闻';
+    return;
+  }
+  isLoadingMeetingMode.value = true;
+  try {
+    await applyMeetingSummary();
+    configInfo.value = '会议总结已加载';
+  } finally {
+    isLoadingMeetingMode.value = false;
+  }
+};
+
+const loadMeetingQuestions = async () => {
+  if (!selectedMeetingReportId.value) {
+    configInfo.value = '请先选择一条新闻';
+    return;
+  }
+  isLoadingMeetingMode.value = true;
+  try {
+    await applyMeetingQuestions();
+    configInfo.value = `会议提问已加载（${meetingQuestions.value.length} 条）`;
+  } finally {
+    isLoadingMeetingMode.value = false;
+  }
+};
+
+const loadMeetingReflections = async () => {
+  if (!selectedMeetingReportId.value) {
+    configInfo.value = '请先选择一条新闻';
+    return;
+  }
+  isLoadingMeetingMode.value = true;
+  try {
+    await applyMeetingReflections();
+    configInfo.value = `会议反思已加载（${meetingReflectionItems.value.length} 条）`;
+  } finally {
+    isLoadingMeetingMode.value = false;
+  }
+};
+
+const onMeetingReportChanged = async (event: Event) => {
+  const value = Number((event.target as HTMLSelectElement).value || '0');
+  selectedMeetingReportId.value = value || null;
+  meetingQuestions.value = [];
+  meetingReflectionItems.value = [];
+  await applyMeetingSummary();
+};
+
 const onReflectionReportChanged = async (event: Event) => {
   const value = Number((event.target as HTMLSelectElement).value || '0');
   selectedReflectionReportId.value = value || null;
@@ -893,7 +1129,11 @@ const onReflectionReportChanged = async (event: Event) => {
 const saveMode = async (): Promise<boolean> => {
   try {
     const selectedReportId =
-      playbackMode.value === 'realtime_summary' ? selectedRealtimeReportId.value : selectedReflectionReportId.value;
+      playbackMode.value === 'realtime_summary'
+        ? selectedRealtimeReportId.value
+        : playbackMode.value === 'meeting_live'
+          ? selectedMeetingReportId.value
+          : selectedReflectionReportId.value;
     const result = await updatePlaybackMode({
       mode: playbackMode.value,
       carousel_scope: carouselScope.value,
@@ -905,6 +1145,8 @@ const saveMode = async (): Promise<boolean> => {
       selectedRealtimeReportId.value = result.selected_report_id;
     } else if (result.mode === 'reflection_qa') {
       selectedReflectionReportId.value = result.selected_report_id;
+    } else if (result.mode === 'meeting_live') {
+      selectedMeetingReportId.value = result.selected_report_id;
     }
     return true;
   } catch (e: any) {
@@ -923,6 +1165,16 @@ const switchMode = async (mode: PlaybackMode) => {
     await loadReflectionReportOptions();
     reflectionItems.value = [];
     await applyReflectionSummary();
+    return;
+  }
+  if (mode === 'meeting_live') {
+    await loadReflectionReportOptions();
+    if (!selectedMeetingReportId.value && reflectionReportOptions.value.length) {
+      selectedMeetingReportId.value = reflectionReportOptions.value[0].id;
+    }
+    meetingQuestions.value = [];
+    meetingReflectionItems.value = [];
+    await applyMeetingSummary();
     return;
   }
   await refreshQueue();
@@ -1039,7 +1291,7 @@ const loadAvatarToken = async () => {
         };
         avatarForm.token = baseAvatarConfig.value.token;
         avatarForm.figureId = String(baseAvatarConfig.value.figureId);
-        avatarForm.cameraId = baseAvatarConfig.value.cameraId ?? '';
+        avatarForm.cameraId = String(baseAvatarConfig.value.cameraId ?? '');
         avatarForm.resolutionWidth = baseAvatarConfig.value.resolutionWidth ?? 1920;
         avatarForm.resolutionHeight = baseAvatarConfig.value.resolutionHeight ?? 1080;
         configInfo.value = '后端未配置，已使用本地配置';
@@ -1204,7 +1456,9 @@ const openImmersivePage = async () => {
   }
 
   const id =
-    playbackMode.value === 'reflection_qa'
+    playbackMode.value === 'meeting_live'
+      ? selectedMeetingReportId.value || Number(report.id || '0') || 0
+      : playbackMode.value === 'reflection_qa'
       ? selectedReflectionReportId.value || Number(report.id || '0') || 0
       : Number(report.id || '0') || 0;
 
@@ -1212,7 +1466,10 @@ const openImmersivePage = async () => {
   params.set('t', String(Date.now()));
   params.set('langs', selectedLanguageKeys.value.join(','));
   params.set('mode', playbackMode.value);
-  const immersiveUrl = `/immersive/${id}?${params.toString()}`;
+  const immersiveUrl =
+    playbackMode.value === 'meeting_live'
+      ? `/immersive-meeting/${id}?${params.toString()}`
+      : `/immersive/${id}?${params.toString()}`;
 
   // 先同步打开目标页面，确保用户手势生效并避免被拦截。
   const immersiveWindow = window.open(immersiveUrl, 'immersive-player');
@@ -1227,6 +1484,9 @@ const openImmersivePage = async () => {
     configInfo.value = '沉浸式页面已打开，但本次配置保存失败，请检查后端连接后重试保存。';
     return;
   }
+  // 配置写入后端后立即广播，让沉浸式页面立刻刷新内容，
+  // 避免沉浸式页面在 onMounted 时读到旧的 selected_report_id。
+  publishRuntimeSnapshot();
   if (debugAvatarEnabled.value) {
     (playerRef.value as any)?.unloadAvatar?.();
     debugAvatarEnabled.value = false;
@@ -1255,6 +1515,8 @@ const loadMode = async () => {
       selectedRealtimeReportId.value = modeState.selected_report_id;
     } else if (modeState.mode === 'reflection_qa') {
       selectedReflectionReportId.value = modeState.selected_report_id;
+    } else if (modeState.mode === 'meeting_live') {
+      selectedMeetingReportId.value = modeState.selected_report_id;
     }
   } catch {
     playbackMode.value = 'carousel_summary';
@@ -1282,6 +1544,11 @@ onMounted(async () => {
     await loadRealtimeSummary();
   } else if (playbackMode.value === 'reflection_qa') {
     await applyReflectionSummary();
+  } else if (playbackMode.value === 'meeting_live') {
+    if (!selectedMeetingReportId.value && reflectionReportOptions.value.length) {
+      selectedMeetingReportId.value = reflectionReportOptions.value[0].id;
+    }
+    await applyMeetingSummary();
   }
 
   window.addEventListener('storage', onStorageChanged);
@@ -1289,7 +1556,7 @@ onMounted(async () => {
     if (playbackMode.value === 'carousel_summary') {
       refreshQueue();
     }
-  }, 6000);
+  }, 8000); // 从6秒改为8秒，降低轮询频率
 });
 
 onUnmounted(() => {

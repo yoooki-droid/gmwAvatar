@@ -191,6 +191,11 @@ const sendInterrupt = () => {
   });
 };
 
+const interrupt = () => {
+  sendInterrupt();
+  setStatus('播报中断');
+};
+
 const speakText = (text: string) => {
   if (!dh || !text.trim()) return;
   sendInterrupt();
@@ -334,5 +339,5 @@ onUnmounted(() => {
   disposeDHIframe();
 });
 
-defineExpose({ speak, speakText, speakAudio, reloadAvatar, unloadAvatar, loadAvatar });
+defineExpose({ speak, speakText, speakAudio, interrupt, reloadAvatar, unloadAvatar, loadAvatar });
 </script>

@@ -12,6 +12,7 @@
       <table>
         <thead>
           <tr>
+            <th>ID</th>
             <th>自动播报</th>
             <th>Title</th>
             <th>Speaker</th>
@@ -21,6 +22,7 @@
         </thead>
         <tbody>
           <tr v-for="item in items" :key="item.id">
+            <td class="id-cell">#{{ item.id }}</td>
             <td>
               <label class="switch-wrap">
                 <input
@@ -50,14 +52,14 @@
 
     <div class="panel-mask" v-if="showFeishuPanel" @click.self="closeFeishuPanel">
       <section class="panel-card">
-        <h3>绑定飞书会议并导入</h3>
-        <p class="panel-desc">输入飞书会议链接后，系统会自动拉取妙记内容并导入到新闻列表。</p>
+        <h3>绑定飞书链接并导入</h3>
+        <p class="panel-desc">支持会议链接、妙记链接、文档链接，导入后自动写入新闻列表。</p>
         <label>
-          <span>飞书会议链接</span>
+          <span>飞书链接</span>
           <input
             v-model.trim="feishuLinkInput"
             class="field"
-            placeholder="https://vc.feishu.cn/j/151322082 或 https://tpc.feishu.cn/minutes/xxxx"
+            placeholder="https://vc.feishu.cn/j/xxxx 或 https://tpc.feishu.cn/minutes/xxxx 或 https://tpc.feishu.cn/docx/xxxx"
           />
         </label>
         <div class="panel-grid">
@@ -90,7 +92,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
 
-import { deleteReport, importFeishuMeeting, listReports, type ReportListItem, updateReport } from '../services/api';
+import { deleteReport, importFeishuDocx, importFeishuMeeting, listReports, type ReportListItem, updateReport } from '../services/api';
 
 const FEISHU_BINDING_KEY = 'feishu_form_binding_link';
 const queueVersionKey = 'playback_queue_version';
@@ -106,6 +108,8 @@ const lookbackDaysInput = ref(30);
 const autoGenerateInput = ref(true);
 const autoEnablePlaybackInput = ref(false);
 const importResultText = ref('');
+
+const isDocxLink = (link: string) => /\/docx\//i.test(link);
 
 const formatDate = (raw: string) => {
   const d = new Date(raw);
@@ -154,20 +158,31 @@ const closeFeishuPanel = () => {
 const bindAndImportFeishuMeeting = async () => {
   const link = feishuLinkInput.value.trim();
   if (!link) {
-    window.alert('请先输入飞书会议链接');
+    window.alert('请先输入飞书链接');
     return;
   }
   importing.value = true;
   importResultText.value = '';
   const lookbackDays = Number.isFinite(lookbackDaysInput.value) ? Math.max(1, Math.min(180, lookbackDaysInput.value)) : 30;
   try {
-    const result = await importFeishuMeeting({
-      meeting_url: link,
-      lookback_days: lookbackDays,
-      auto_generate: autoGenerateInput.value,
-      auto_enable_playback: autoEnablePlaybackInput.value,
-    });
-    importResultText.value = `${result.message}。`;
+    if (isDocxLink(link)) {
+      const result = await importFeishuDocx({
+        docx_url: link,
+        auto_generate: autoGenerateInput.value,
+        auto_enable_playback: autoEnablePlaybackInput.value,
+      });
+      importResultText.value = result.success
+        ? `${result.message}。`
+        : `导入失败：${result.error || result.message}`;
+    } else {
+      const result = await importFeishuMeeting({
+        meeting_url: link,
+        lookback_days: lookbackDays,
+        auto_generate: autoGenerateInput.value,
+        auto_enable_playback: autoEnablePlaybackInput.value,
+      });
+      importResultText.value = `${result.message}。`;
+    }
     await loadList();
   } catch (error: any) {
     importResultText.value = `导入失败：${String(error?.message || error)}`;
@@ -240,5 +255,11 @@ onMounted(async () => {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+}
+
+.id-cell {
+  color: #8fc7ff;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 </style>

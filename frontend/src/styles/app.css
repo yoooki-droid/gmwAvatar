@@ -538,7 +538,7 @@ label {
 
 .immersive-panel-reflection {
   right: 2.2%;
-  width: 56.8%;
+  width: 50%;
   padding: 8.8% 6.6% 6.2% 6.4%;
 }
 
@@ -686,7 +686,7 @@ label {
 
 .immersive-reflection-item p {
   margin: 0;
-  font-size: clamp(13px, 0.98vw, 18px);
+  font-size: clamp(14px, 1.1vw, 20px);
   line-height: 1.5;
   color: rgba(245, 240, 255, 0.94);
   white-space: pre-wrap;

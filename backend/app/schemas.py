@@ -6,12 +6,14 @@ from pydantic import BaseModel, Field
 class ReportCreate(BaseModel):
     title: str
     meeting_time: datetime | None = None
-    speaker: str = ''
+    speaker: str = ""
     summary_raw: str
     source_language: str | None = None
-    script_final: str = ''
+    script_final: str = ""
     highlights_final: list[str] = Field(default_factory=list)
     reflections_final: list[str] = Field(default_factory=list)
+    questions_final: list[str] = Field(default_factory=list)
+    question_persona: str = "board_director"
     auto_play_enabled: bool = False
 
 
@@ -24,6 +26,8 @@ class ReportUpdate(BaseModel):
     script_final: str | None = None
     highlights_final: list[str] | None = None
     reflections_final: list[str] | None = None
+    questions_final: list[str] | None = None
+    question_persona: str | None = None
     auto_play_enabled: bool | None = None
 
 
@@ -56,6 +60,8 @@ class ReportDetail(BaseModel):
     highlights_draft: list[str]
     highlights_final: list[str]
     reflections_final: list[str]
+    questions_final: list[str]
+    question_persona: str
     auto_play_enabled: bool
     status: str
     published_at: datetime | None
@@ -68,18 +74,21 @@ class GenerateResponse(BaseModel):
     script_draft: str
     highlights_draft: list[str]
     reflections_draft: list[str]
+    questions_draft: list[str]
 
 
 class GeneratePreviewRequest(BaseModel):
     title: str
-    speaker: str = ''
+    speaker: str = ""
     summary_raw: str
+    question_persona: str = "board_director"
 
 
 class GeneratePreviewResponse(BaseModel):
     script_draft: str
     highlights_draft: list[str]
     reflections_draft: list[str]
+    questions_draft: list[str]
 
 
 class TranslateScriptRequest(BaseModel):
@@ -152,6 +161,56 @@ class FeishuMeetingImportResponse(BaseModel):
     message: str
 
 
+class FeishuDocxImportRequest(BaseModel):
+    """飞书文档导入请求"""
+
+    docx_url: str
+    auto_generate: bool = True
+    auto_enable_playback: bool = False
+
+
+class FeishuDocxImportResponse(BaseModel):
+    """飞书文档导入响应"""
+
+    success: bool
+    report_id: int | None
+    title: str
+    content_length: int
+    message: str
+    error: str | None = None
+
+
+class FeishuDocxInspectRequest(BaseModel):
+    docx_url: str
+
+
+class FeishuDocxInspectResponse(BaseModel):
+    ok: bool
+    document_id: str
+    title: str
+    content_length: int
+    message: str
+    error: str | None = None
+
+
+class FeishuDocxDiagnoseRequest(BaseModel):
+    docx_url: str
+
+
+class FeishuDocxDiagnoseStep(BaseModel):
+    step: str
+    ok: bool
+    detail: str
+    data: dict = Field(default_factory=dict)
+
+
+class FeishuDocxDiagnoseResponse(BaseModel):
+    ok: bool
+    document_id: str
+    steps: list[FeishuDocxDiagnoseStep]
+    suggestion: str
+
+
 class FeishuMeetingInspectRequest(BaseModel):
     meeting_url: str
     lookback_days: int = Field(default=30, ge=1, le=180)
@@ -215,6 +274,8 @@ class PlaybackQueueItem(BaseModel):
     script_final: str
     highlights_final: list[str]
     reflections_final: list[str]
+    questions_final: list[str]
+    question_persona: str
     localized: dict[str, dict] = Field(default_factory=dict)
 
 
@@ -226,12 +287,15 @@ class PlaybackQueueResponse(BaseModel):
 class TranslationItem(BaseModel):
     language_key: str
     status: str
+    error: str = ""
     reviewed: bool
     reviewed_at: datetime | None
     title: str
     script_final: str
     highlights_final: list[str]
     reflections_final: list[str]
+    questions_final: list[str]
+    question_persona: str
     render_mode: str
     audio_ready: bool
 
@@ -246,6 +310,8 @@ class TranslationUpdateRequest(BaseModel):
     script_final: str | None = None
     highlights_final: list[str] | None = None
     reflections_final: list[str] | None = None
+    questions_final: list[str] | None = None
+    question_persona: str | None = None
     reviewed: bool | None = None
 
 
@@ -259,8 +325,29 @@ class TranslationPrepareResponse(BaseModel):
     script_final: str
     highlights_final: list[str]
     reflections_final: list[str]
+    questions_final: list[str]
+    question_persona: str
     render_mode: str
     audio_ready: bool
+
+
+class TranslationJobTriggerResponse(BaseModel):
+    task_id: str
+    report_id: int
+    languages: list[str]
+    status: str
+
+
+class TranslationJobStatusItem(BaseModel):
+    language_key: str
+    status: str
+    error: str = ""
+    updated_at: datetime | None = None
+
+
+class TranslationJobStatusResponse(BaseModel):
+    report_id: int
+    items: list[TranslationJobStatusItem]
 
 
 class PlaybackModeResponse(BaseModel):
@@ -272,7 +359,7 @@ class PlaybackModeResponse(BaseModel):
 
 class PlaybackModeUpdateRequest(BaseModel):
     mode: str
-    carousel_scope: str = 'loop'
+    carousel_scope: str = "loop"
     selected_report_id: int | None = None
 
 
@@ -289,8 +376,28 @@ class FeishuLiveRecordsResponse(BaseModel):
 
 class ReflectionItem(BaseModel):
     text: str
+    # 预合成音频（zh 版本），前端可直接播放，None 表示尚未合成
+    audio_pcm_base64: str | None = None
+
+
+class ReflectionAudioItem(BaseModel):
+    """单条反思的某语言预合成音频，供前端异步补全其他语言时使用。"""
+
+    seq: int
+    language_key: str
+    audio_pcm_base64: str
 
 
 class ReflectionResponse(BaseModel):
     report_id: int
     reflections: list[ReflectionItem]
+
+
+class QuestionItem(BaseModel):
+    text: str
+
+
+class QuestionResponse(BaseModel):
+    report_id: int
+    persona: str
+    questions: list[QuestionItem]

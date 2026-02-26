@@ -47,7 +47,7 @@
             </div>
           </div>
           <div class="immersive-reflection-cards" v-else>
-            <div class="immersive-reflection-item" v-for="(item, idx) in reflectionsForView" :key="idx">
+            <div class="immersive-reflection-item immersive-reflection-single" v-for="(item, idx) in reflectionsForView" :key="idx">
               <span class="reflection-index">{{ idx + 1 }}.</span>
               <p>{{ item }}</p>
             </div>
@@ -116,6 +116,7 @@ const languageOptions: LanguageOption[] = [
   { key: 'id', label: '印度尼西亚语', ttsLan: 'Indonesian' },
   { key: 'ms', label: '马来西亚语', ttsLan: 'auto' },
   { key: 'hi', label: '印度语', ttsLan: 'Hindi' },
+  { key: 'th', label: '泰语', ttsLan: 'Thai' },
 ];
 
 const languageTargetMap: Record<string, string> = {
@@ -126,6 +127,7 @@ const languageTargetMap: Record<string, string> = {
   id: 'Indonesian',
   ms: 'Malay (Malaysia)',
   hi: 'Hindi',
+  th: 'Thai',
 };
 const TEXT_RENDER_LANGUAGE_KEYS = new Set(['zh', 'en']);
 
@@ -161,8 +163,10 @@ const liveSummaryLines = ref<string[]>([]);
 const realtimeBatchKey = ref(0);
 const realtimeDisplayLines = ref<string[]>([]);
 const realtimeLastHash = ref('');
-const reflectionLines = ref<string[]>([]);
+// 存储带音频的完整反思条目（text + audio_pcm_base64），按 report_id 缓存
+const reflectionItems = ref<Array<{ text: string; audio_pcm_base64?: string | null }>>([]);
 const reflectionLoadedReportId = ref<number | null>(null);
+const currentReflectionIndex = ref(0);
 
 const baseAvatarConfig = ref<AvatarConfig | null>(null);
 
@@ -192,9 +196,11 @@ const highlightsForView = computed(() => {
 });
 
 const reflectionsForView = computed(() => {
-  const items = report.reflectionsFinal.filter(Boolean).slice(0, 3);
-  if (items.length) return items;
-  return ['暂无反思内容', '暂无反思内容', '暂无反思内容'];
+  const items = report.reflectionsFinal.filter(Boolean);
+  if (!items.length) {
+    return ['暂无反思内容'];
+  }
+  return items.slice(0, 5);
 });
 
 const updateRealtimeDisplayLines = (force = false) => {
@@ -330,6 +336,31 @@ const resolveNonCarouselAudio = async (
   return { renderMode: 'audio', audioPcmBase64: audio };
 };
 
+/**
+ * 后台异步预热其他语言的反思音频。
+ * 当主语言（zh）已展示后，静默拉取剩余语言，写入 nonCarouselAudioCache，
+ * 后续切换语言时可立即命中缓存。
+ */
+const _prefetchOtherLanguageAudios = async (reportId: number) => {
+  const otherKeys = selectedLanguageKeys.value.filter(
+    (k) => k !== currentLanguage.value.key && !TEXT_RENDER_LANGUAGE_KEYS.has(k),
+  );
+  if (!otherKeys.length) return;
+  for (const langKey of otherKeys) {
+    try {
+      const data = await getReportReflection(reportId, langKey);
+      data.reflections?.forEach((item, idx) => {
+        if (item.audio_pcm_base64) {
+          const seedKey = `reflection:${reportId}:${idx}:第${idx + 1}条建议：${item.text}`;
+          nonCarouselAudioCache.value[`${seedKey}:${langKey}`] = item.audio_pcm_base64;
+        }
+      });
+    } catch {
+      // 预热失败不影响主流程
+    }
+  }
+};
+
 const applyCarouselReport = async (force = false): Promise<boolean> => {
   const current = getCurrentQueueItem();
   if (!current) {
@@ -440,51 +471,98 @@ const applyReflectionSummary = async (): Promise<boolean> => {
       report.title = '反思（未选择新闻）';
       report.scriptFinal = '请先在调试页选择新闻并调取反思内容。';
       report.highlightsFinal = [];
-      report.reflectionsFinal = ['暂无反思内容', '暂无反思内容', '暂无反思内容'];
+      report.reflectionsFinal = ['暂无反思内容'];
       report.renderMode = 'text';
       report.audioPcmBase64 = '';
+      currentReflectionIndex.value = 0;
       return false;
     }
     selectedReportId.value = targetId;
 
     if (reflectionLoadedReportId.value !== targetId) {
-      reflectionLines.value = [];
+      reflectionItems.value = [];
+      currentReflectionIndex.value = 0;
     }
-    if (!reflectionLines.value.length) {
+    if (!reflectionItems.value.length) {
       try {
-        const data = await getReportReflection(targetId);
-        reflectionLines.value = (data.reflections || []).map((x) => x.text).filter(Boolean);
+        const langKey = currentLanguage.value.key;
+        const data = await getReportReflection(targetId, langKey);
+        reflectionItems.value = (data.reflections || []).filter((x) => x.text?.trim());
         reflectionLoadedReportId.value = targetId;
+        currentReflectionIndex.value = 0;
+        // 后台为其他语言异步预热（fire-and-forget）
+        _prefetchOtherLanguageAudios(targetId);
       } catch {
-        reflectionLines.value = [];
-        reflectionLoadedReportId.value = null;
+        reflectionItems.value = [];
+  reflectionLoadedReportId.value = null;
+  reflectionItems.value = [];
+        currentReflectionIndex.value = 0;
       }
     }
 
     const target = queueItems.value.find((x) => x.id === targetId);
+    const baseItems = reflectionItems.value.slice(0, 5);
+    const currentItem = baseItems[currentReflectionIndex.value % baseItems.length];
+    const currentReflectionText = currentItem?.text || '';
     const baseTitle = `${target?.title || '会议内容'}｜反思`;
-    const baseReflections = reflectionLines.value.slice(0, 5);
-    const baseScript = baseReflections.map((x, idx) => `第${idx + 1}条建议：${x}`).join('。');
-    const baseHighlights = baseReflections;
+    const baseScript = currentReflectionText ? `第${currentReflectionIndex.value + 1}条建议：${currentReflectionText}` : '';
+    const baseHighlights = baseItems.map((x) => x.text);
 
     if (!baseScript.trim()) {
       report.id = String(targetId);
       report.title = baseTitle;
       report.scriptFinal = '当前暂无反思内容，请先在调试页调取反思内容。';
       report.highlightsFinal = [];
-      report.reflectionsFinal = ['请先调取反思内容', '调取后将自动显示', '请稍候'];
+      report.reflectionsFinal = ['请先调取反思内容'];
       report.renderMode = 'text';
       report.audioPcmBase64 = '';
       return false;
     }
 
-    const payload = await translateNonCarouselPayload(`reflection:${targetId}:${baseScript}`, {
+    const seedKey = `reflection:${targetId}:${currentReflectionIndex.value}:${baseScript}`;
+    const payload = await translateNonCarouselPayload(seedKey, {
       title: baseTitle,
       script: baseScript,
       highlights: baseHighlights,
     });
 
-    const audioPayload = await resolveNonCarouselAudio(`reflection:${targetId}:${payload.script}`, payload.script);
+    // 优先使用后端预合成音频：当前语言且 text_hash 匹配（API 已做校验，有值即可信）
+    const langKey = currentLanguage.value.key;
+    const prebuiltAudio = !TEXT_RENDER_LANGUAGE_KEYS.has(langKey)
+      ? (currentItem?.audio_pcm_base64 || '')
+      : '';
+
+    let audioPayload: { renderMode: 'text' | 'audio'; audioPcmBase64: string };
+    if (prebuiltAudio) {
+      // 写入前端缓存，避免后续切换时重复请求
+      const cacheKey = `${seedKey}:${langKey}`;
+      nonCarouselAudioCache.value[cacheKey] = prebuiltAudio;
+      audioPayload = { renderMode: 'audio', audioPcmBase64: prebuiltAudio };
+    } else {
+      // 无预合成音频：先以文字模式立即展示，同时后台合成
+      report.id = String(targetId);
+      report.title = payload.title;
+      report.scriptFinal = payload.script;
+      report.highlightsFinal = [];
+      report.reflectionsFinal = payload.highlights;
+      report.renderMode = 'text';
+      report.audioPcmBase64 = '';
+      lastRenderSignature.value = buildRenderSignature(seedKey);
+      isPreparingScript.value = false;
+
+      // 后台异步合成，完成后更新音频
+      resolveNonCarouselAudio(`${seedKey}:async`, payload.script)
+        .then((ap) => {
+          if (ap.audioPcmBase64 && report.id === String(targetId)) {
+            report.renderMode = ap.renderMode;
+            report.audioPcmBase64 = ap.audioPcmBase64;
+          }
+        })
+        .catch(() => { /* 合成失败保持文字模式 */ });
+
+      return true;
+    }
+
     report.id = String(targetId);
     report.title = payload.title;
     report.scriptFinal = payload.script;
@@ -492,7 +570,7 @@ const applyReflectionSummary = async (): Promise<boolean> => {
     report.reflectionsFinal = payload.highlights;
     report.renderMode = audioPayload.renderMode;
     report.audioPcmBase64 = audioPayload.audioPcmBase64;
-    lastRenderSignature.value = buildRenderSignature(`reflection:${targetId}:${payload.script}`);
+    lastRenderSignature.value = buildRenderSignature(seedKey);
     return true;
   } catch {
     return false;
@@ -754,6 +832,24 @@ const handleBroadcastFinished = async () => {
   if (isPreparingScript.value) return;
   const previousSignature = getPlaySignature();
 
+  // 反思模式：循环播放各条反思
+  if (playbackMode.value === 'reflection_qa') {
+    const totalReflections = report.reflectionsFinal.filter(Boolean).length;
+    if (totalReflections > 1) {
+      currentReflectionIndex.value = (currentReflectionIndex.value + 1) % totalReflections;
+      // 触发重新渲染，但不需要重新获取数据
+      const ok = await applyReflectionSummary();
+      if (!ok) return;
+      if (getPlaySignature() === previousSignature) {
+        window.setTimeout(() => playCurrentOnPlayer(), 420);
+      }
+      return;
+    }
+    // 只有一条或没有反思时，直接重播
+    window.setTimeout(() => playCurrentOnPlayer(), 420);
+    return;
+  }
+
   if (selectedLanguageKeys.value.length > 1 && currentLanguageIndex.value < selectedLanguageKeys.value.length - 1) {
     currentLanguageIndex.value += 1;
     const ok = await applyCurrentModeContent();
@@ -798,11 +894,9 @@ const onStorageChanged = (event: StorageEvent) => {
 };
 
 onMounted(async () => {
-  loadLanguageSelection(true);
-  await Promise.all([loadAvatarConfig(), loadMode(), refreshQueue(false)]);
-  await loadRealtimeRecords();
-  updateRealtimeDisplayLines(true);
-  await applyCurrentModeContent(true);
+  // 先注册监听器，避免初始化期间错过 PlaybackPage 发出的广播
+  let pendingSync: { langs?: string[] } | null = null;
+  let isInitializing = true;
 
   window.addEventListener('storage', onStorageChanged);
   if (typeof window.BroadcastChannel !== 'undefined') {
@@ -810,27 +904,52 @@ onMounted(async () => {
       runtimeChannel = new window.BroadcastChannel(runtimeBroadcastChannel);
       runtimeChannel.onmessage = (event: MessageEvent) => {
         if (event.data?.type === 'runtime-sync') {
-          applyRuntimeLanguages(event.data?.langs);
-          void syncFromRuntimeConfig();
+          if (isInitializing) {
+            // 初始化期间收到广播，先暂存，等初始化完成后处理
+            pendingSync = { langs: event.data?.langs };
+          } else {
+            applyRuntimeLanguages(event.data?.langs);
+            void syncFromRuntimeConfig();
+          }
         }
       };
     } catch {
       runtimeChannel = null;
     }
   }
+
+  loadLanguageSelection(true);
+  await Promise.all([loadAvatarConfig(), loadMode(), refreshQueue(false)]);
+  await loadRealtimeRecords();
+  updateRealtimeDisplayLines(true);
+  await applyCurrentModeContent(true);
+
+  isInitializing = false;
+
+  // 初始化完成后，如果期间收到过广播，立即处理
+  if (pendingSync !== null) {
+    const ps = pendingSync as { langs?: string[] };
+    pendingSync = null;
+    applyRuntimeLanguages(ps.langs);
+    void syncFromRuntimeConfig();
+  }
   queuePollTimer = window.setInterval(async () => {
-    await loadMode();
-    if (playbackMode.value === 'realtime_summary') {
-      await loadRealtimeRecords();
-      await applyRealtimeSummary();
-      return;
+    try {
+      await loadMode();
+      if (playbackMode.value === 'realtime_summary') {
+        await loadRealtimeRecords();
+        await applyRealtimeSummary();
+        return;
+      }
+      if (playbackMode.value === 'reflection_qa') {
+        await applyReflectionSummary();
+        return;
+      }
+      await refreshQueue();
+    } catch (err) {
+      console.warn('轮询任务执行失败:', err);
     }
-    if (playbackMode.value === 'reflection_qa') {
-      await applyReflectionSummary();
-      return;
-    }
-    await refreshQueue();
-  }, 6000);
+  }, 8000); // 从6秒改为8秒，降低轮询频率
 });
 
 onUnmounted(() => {

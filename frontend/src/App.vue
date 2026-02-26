@@ -16,5 +16,7 @@ import { computed } from 'vue';
 import { useRoute } from 'vue-router';
 
 const route = useRoute();
-const isImmersivePage = computed(() => route.path.startsWith('/immersive/'));
+const isImmersivePage = computed(
+  () => route.path.startsWith('/immersive/') || route.path.startsWith('/immersive-meeting/'),
+);
 </script>
